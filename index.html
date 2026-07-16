@@ -235,7 +235,8 @@ const comboBar = document.getElementById('combo-bar');
 
 let W, H;
 function resize() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  // Cap DPR at 1.5 — on 3x phones this cuts pixel work by ~44% with negligible visual loss
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
   W = window.innerWidth; H = window.innerHeight;
   canvas.width = W * dpr; canvas.height = H * dpr;
   canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
@@ -581,7 +582,7 @@ const fctx = flowersCanvas.getContext('2d');
 let FW, FH;
 
 function resizeFlowers() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
   const rect = flowersCanvas.getBoundingClientRect();
   FW = Math.max(rect.width, window.innerWidth);
   FH = Math.max(rect.height, window.innerHeight * 0.55);
@@ -773,32 +774,40 @@ function updateFlowers(dt) {
   }
 }
 
+// Pre-rendered trail/touch glow sprite — same one reused for all trail dots + current touch
+let trailSprite = null;
+function getTrailSprite() {
+  if (trailSprite) return trailSprite;
+  const size = 128;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const cx = c.getContext('2d');
+  const g = cx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, 'rgba(255, 220, 255, 0.7)');
+  g.addColorStop(0.4, 'rgba(200, 160, 255, 0.25)');
+  g.addColorStop(1, 'rgba(200, 160, 255, 0)');
+  cx.fillStyle = g;
+  cx.fillRect(0, 0, size, size);
+  trailSprite = c;
+  return c;
+}
+
 function drawTouchGlow() {
-  // Trail (older = smaller/fainter)
+  const sprite = getTrailSprite();
+  // Trail — one drawImage per dot instead of building a gradient each time
   for (const t of trail) {
     const a = t.life / 0.5;
-    const r = t.size * a;
-    const g = fctx.createRadialGradient(t.x, t.y, 0, t.x, t.y, r * 2);
-    g.addColorStop(0, `rgba(255, 220, 255, ${0.35 * a})`);
-    g.addColorStop(1, 'rgba(255, 220, 255, 0)');
-    fctx.fillStyle = g;
-    fctx.beginPath();
-    fctx.arc(t.x, t.y, r * 2, 0, Math.PI * 2);
-    fctx.fill();
+    const r = t.size * a * 2;
+    fctx.globalAlpha = 0.5 * a;
+    fctx.drawImage(sprite, t.x - r, t.y - r, r * 2, r * 2);
   }
-
   // Current touch glow
   if (pointer.active && performance.now() - pointer.lastMove < 300) {
     const R = 55;
-    const g = fctx.createRadialGradient(pointer.x, pointer.y, 0, pointer.x, pointer.y, R);
-    g.addColorStop(0, 'rgba(255, 230, 255, 0.35)');
-    g.addColorStop(0.4, 'rgba(200, 160, 255, 0.15)');
-    g.addColorStop(1, 'rgba(200, 160, 255, 0)');
-    fctx.fillStyle = g;
-    fctx.beginPath();
-    fctx.arc(pointer.x, pointer.y, R, 0, Math.PI * 2);
-    fctx.fill();
+    fctx.globalAlpha = 0.5;
+    fctx.drawImage(sprite, pointer.x - R, pointer.y - R, R * 2, R * 2);
   }
+  fctx.globalAlpha = 1;
 }
 
 function spawnPetal(x, y, color, pvx, pvy) {
@@ -838,41 +847,79 @@ function drawGrass() {
   fctx.fill();
 }
 
-function drawTulipHead(w, h, color) {
-  // Head is drawn with its BASE at origin (0,0), tip pointing UP (-y)
-  // Back petal (middle, behind)
-  fctx.fillStyle = color.dark;
-  fctx.beginPath();
-  fctx.moveTo(0, 0);
-  fctx.bezierCurveTo(-w * 0.35, -h * 0.4, -w * 0.28, -h * 1.05, 0, -h * 1.1);
-  fctx.bezierCurveTo(w * 0.28, -h * 1.05, w * 0.35, -h * 0.4, 0, 0);
-  fctx.closePath();
-  fctx.fill();
+// Pre-render tulip heads once per color as offscreen sprites — massive perf win vs redrawing
+// 3 bezier fills + shadowBlur × 120 flowers × 60fps
+const TULIP_REF_H = 100;
+const TULIP_REF_W = TULIP_REF_H * 0.75;
+const TULIP_SPRITE_SCALE = 2; // supersample for sharpness when scaled down
+const tulipSpriteCache = new Map();
+
+function buildTulipHeadPath(cx, w, h) {
+  // Back petal
+  cx.beginPath();
+  cx.moveTo(0, 0);
+  cx.bezierCurveTo(-w * 0.35, -h * 0.4, -w * 0.28, -h * 1.05, 0, -h * 1.1);
+  cx.bezierCurveTo(w * 0.28, -h * 1.05, w * 0.35, -h * 0.4, 0, 0);
+  cx.closePath();
+}
+
+function makeTulipSprite(color) {
+  const w = TULIP_REF_W, h = TULIP_REF_H;
+  const padX = 14, padTop = 12, padBot = 4;
+  const cw = (w * 2 + padX * 2) * TULIP_SPRITE_SCALE;
+  const ch = (h * 1.1 + padTop + padBot) * TULIP_SPRITE_SCALE;
+  const c = document.createElement('canvas');
+  c.width = cw; c.height = ch;
+  const cx = c.getContext('2d');
+  cx.scale(TULIP_SPRITE_SCALE, TULIP_SPRITE_SCALE);
+  cx.translate(cw / (2 * TULIP_SPRITE_SCALE), ch / TULIP_SPRITE_SCALE - padBot);
+
+  // Soft glow behind (baked in — avoids per-frame shadowBlur)
+  cx.save();
+  cx.globalAlpha = 0.35;
+  cx.filter = 'blur(6px)';
+  cx.fillStyle = color.main;
+  buildTulipHeadPath(cx, w * 1.05, h * 1.05);
+  cx.fill();
+  cx.restore();
+
+  // Back petal
+  cx.fillStyle = color.dark;
+  buildTulipHeadPath(cx, w, h);
+  cx.fill();
 
   // Left front petal
-  fctx.fillStyle = color.main;
-  fctx.beginPath();
-  fctx.moveTo(0, -h * 0.05);
-  fctx.bezierCurveTo(-w * 0.95, -h * 0.35, -w * 0.75, -h * 1.0, -w * 0.15, -h * 0.95);
-  fctx.bezierCurveTo(-w * 0.05, -h * 0.7, -w * 0.05, -h * 0.35, 0, -h * 0.05);
-  fctx.closePath();
-  fctx.fill();
+  cx.fillStyle = color.main;
+  cx.beginPath();
+  cx.moveTo(0, -h * 0.05);
+  cx.bezierCurveTo(-w * 0.95, -h * 0.35, -w * 0.75, -h * 1.0, -w * 0.15, -h * 0.95);
+  cx.bezierCurveTo(-w * 0.05, -h * 0.7, -w * 0.05, -h * 0.35, 0, -h * 0.05);
+  cx.closePath();
+  cx.fill();
 
   // Right front petal
-  fctx.beginPath();
-  fctx.moveTo(0, -h * 0.05);
-  fctx.bezierCurveTo(w * 0.95, -h * 0.35, w * 0.75, -h * 1.0, w * 0.15, -h * 0.95);
-  fctx.bezierCurveTo(w * 0.05, -h * 0.7, w * 0.05, -h * 0.35, 0, -h * 0.05);
-  fctx.closePath();
-  fctx.fill();
+  cx.beginPath();
+  cx.moveTo(0, -h * 0.05);
+  cx.bezierCurveTo(w * 0.95, -h * 0.35, w * 0.75, -h * 1.0, w * 0.15, -h * 0.95);
+  cx.bezierCurveTo(w * 0.05, -h * 0.7, w * 0.05, -h * 0.35, 0, -h * 0.05);
+  cx.closePath();
+  cx.fill();
 
   // Highlight on left petal
-  fctx.fillStyle = color.light;
-  fctx.globalAlpha = 0.5;
-  fctx.beginPath();
-  fctx.ellipse(-w * 0.4, -h * 0.55, w * 0.15, h * 0.25, -0.3, 0, Math.PI * 2);
-  fctx.fill();
-  fctx.globalAlpha = 1;
+  cx.fillStyle = color.light;
+  cx.globalAlpha = 0.5;
+  cx.beginPath();
+  cx.ellipse(-w * 0.4, -h * 0.55, w * 0.15, h * 0.25, -0.3, 0, Math.PI * 2);
+  cx.fill();
+  cx.globalAlpha = 1;
+
+  return { canvas: c, w: cw / TULIP_SPRITE_SCALE, h: ch / TULIP_SPRITE_SCALE, padBot };
+}
+
+function getTulipSprite(color) {
+  const key = color.main;
+  if (!tulipSpriteCache.has(key)) tulipSpriteCache.set(key, makeTulipSprite(color));
+  return tulipSpriteCache.get(key);
 }
 
 function drawLeaf(baseX, baseY, side, len, angle) {
@@ -914,20 +961,21 @@ function drawFlowers() {
     fctx.quadraticCurveTo(midX, midY, tipX, tipY);
     fctx.stroke();
 
-    // Tulip head
+    // Tulip head — cached sprite (no per-frame bezier + shadowBlur)
+    const sprite = getTulipSprite(f.color);
+    const scale = f.headH / TULIP_REF_H;
+    const drawW = sprite.w * scale;
+    const drawH = sprite.h * scale;
     fctx.save();
     fctx.translate(tipX, tipY);
     fctx.rotate(f.angle);
     fctx.globalAlpha = brightness;
-    fctx.shadowColor = f.color.main;
-    fctx.shadowBlur = 10 * brightness;
-    drawTulipHead(f.headW, f.headH, f.color);
-    fctx.shadowBlur = 0;
+    fctx.drawImage(sprite.canvas, -drawW / 2, -drawH + sprite.padBot * scale, drawW, drawH);
     fctx.globalAlpha = 1;
     fctx.restore();
   }
 
-  // Petals shed
+  // Petals shed (no shadowBlur — very expensive; the color alone reads fine at speed)
   for (const p of petals) {
     const alpha = Math.min(1, p.life / 1.5);
     fctx.save();
@@ -935,8 +983,6 @@ function drawFlowers() {
     fctx.rotate(p.rot);
     fctx.globalAlpha = alpha;
     fctx.fillStyle = p.color;
-    fctx.shadowColor = p.color;
-    fctx.shadowBlur = 8;
     fctx.beginPath();
     fctx.ellipse(0, 0, p.size, p.size * 0.5, 0, 0, Math.PI * 2);
     fctx.fill();
@@ -946,6 +992,44 @@ function drawFlowers() {
 }
 
 // ============ MAIN LOOP ============
+// Pre-render moon (halo + disc) as a single sprite
+let moonSprite = null;
+function getMoonSprite() {
+  if (moonSprite) return moonSprite;
+  const size = Math.ceil(moon.r * 6);
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const cx = c.getContext('2d');
+  const g = cx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, 'rgba(255, 250, 220, 0.35)');
+  g.addColorStop(0.3, 'rgba(255, 240, 200, 0.1)');
+  g.addColorStop(1, 'rgba(255, 240, 200, 0)');
+  cx.fillStyle = g;
+  cx.fillRect(0, 0, size, size);
+  cx.fillStyle = 'rgba(255, 245, 220, 0.9)';
+  cx.beginPath();
+  cx.arc(size / 2, size / 2, moon.r, 0, Math.PI * 2);
+  cx.fill();
+  moonSprite = c;
+  return c;
+}
+// Pre-render per-color star glow sprite
+const starGlowCache = new Map();
+function getStarGlowSprite(color) {
+  if (starGlowCache.has(color)) return starGlowCache.get(color);
+  const size = 64;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const cx = c.getContext('2d');
+  const g = cx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, `rgba(${color}, 0.5)`);
+  g.addColorStop(1, `rgba(${color}, 0)`);
+  cx.fillStyle = g;
+  cx.fillRect(0, 0, size, size);
+  starGlowCache.set(color, c);
+  return c;
+}
+
 let t = 0, lastFrame = performance.now(), smoothSpeed = 1;
 function draw(now) {
   if (!now) now = performance.now();
@@ -957,18 +1041,12 @@ function draw(now) {
   smoothSpeed += (speedMult - smoothSpeed) * Math.min(dt * 4, 1);
   t += dt * smoothSpeed;
 
-  // Moon
+  // Moon (cached sprite)
   const mx = moon.x * W, my = moon.y * H;
-  const mg = ctx.createRadialGradient(mx, my, 0, mx, my, moon.r * 3);
-  mg.addColorStop(0, 'rgba(255, 250, 220, 0.35)');
-  mg.addColorStop(0.3, 'rgba(255, 240, 200, 0.1)');
-  mg.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = mg;
-  ctx.beginPath(); ctx.arc(mx, my, moon.r * 3, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = 'rgba(255, 245, 220, 0.9)';
-  ctx.beginPath(); ctx.arc(mx, my, moon.r, 0, Math.PI * 2); ctx.fill();
+  const ms = getMoonSprite();
+  ctx.drawImage(ms, mx - ms.width / 2, my - ms.height / 2);
 
-  // Stars
+  // Stars — arc + cached glow sprite for bright ones
   for (const s of stars) {
     s.alpha = s.baseAlpha * (0.5 + 0.5 * Math.sin(s.phase + t * s.speed));
     const px = s.x * W, py = s.y * H;
@@ -977,11 +1055,10 @@ function draw(now) {
     ctx.fillStyle = `rgba(${s.color},${s.alpha})`;
     ctx.fill();
     if (s.r > 1.6 && s.alpha > 0.6) {
-      const g = ctx.createRadialGradient(px, py, 0, px, py, s.r * 5);
-      g.addColorStop(0, `rgba(${s.color},${s.alpha * 0.4})`);
-      g.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(px, py, s.r * 5, 0, Math.PI * 2); ctx.fill();
+      const glowR = s.r * 5;
+      ctx.globalAlpha = s.alpha * 0.8;
+      ctx.drawImage(getStarGlowSprite(s.color), px - glowR, py - glowR, glowR * 2, glowR * 2);
+      ctx.globalAlpha = 1;
     }
   }
 
