@@ -439,7 +439,8 @@ const petals = [];
 
 function buildFlowers() {
   flowers.length = 0;
-  const density = Math.max(90, Math.floor(FW / 10));
+  const density = Math.max(120, Math.floor(FW / 8));
+  const bucketW = FW / density;
   const palette = [
     { main: '#e63b5e', dark: '#a01a3a', light: '#ff7a95' },
     { main: '#ff8fb1', dark: '#c25378', light: '#ffc4d6' },
@@ -458,7 +459,8 @@ function buildFlowers() {
     const jitter = Math.random() * 0.33;
     const depth = Math.min(1, bandDepth + jitter);
 
-    const x = Math.random() * FW;
+    // Stratified sampling — one flower per bucket, jittered — no random gaps
+    const x = i * bucketW + Math.random() * bucketW * 1.3 - bucketW * 0.15;
     const baseY = FH * (0.32 + depth * 0.62);
     const stemLen = randBetween(45, 120) * (0.5 + depth * 0.75);
     const headH = randBetween(16, 30) * (0.5 + depth * 0.75);
