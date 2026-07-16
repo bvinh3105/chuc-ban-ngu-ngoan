@@ -146,12 +146,24 @@
   }
   #mute-btn:hover { background: rgba(255,255,255,0.15); color: #fff; }
   #mute-btn.muted { color: rgba(255,255,255,0.35); }
+
+  #moon-hit {
+    position: fixed;
+    z-index: 15;
+    cursor: pointer;
+    border-radius: 50%;
+    background: transparent;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+  }
+  #moon-hit:active { background: rgba(255, 245, 220, 0.08); }
 </style>
 </head>
 <body>
 
 <canvas id="canvas"></canvas>
 <canvas id="flowers"></canvas>
+<div id="moon-hit" aria-label="mặt trăng"></div>
 <audio id="bgm" src="lullaby.mp3" loop preload="auto" playsinline></audio>
 <button id="mute-btn" class="muted" aria-label="Bật/tắt nhạc">🔇</button>
 
@@ -229,6 +241,7 @@ function resize() {
   canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   resizeFlowers();
+  if (typeof positionMoonHit === 'function') positionMoonHit();
 }
 window.addEventListener('resize', resize);
 
@@ -492,15 +505,18 @@ function drawRipples() {
 }
 
 // ============ HIDDEN EASTER-EGG MODE: tap moon or shake phone → fireflies ============
-function pointerNearMoon(clientX, clientY) {
+const moonHit = document.getElementById('moon-hit');
+function positionMoonHit() {
   const mx = moon.x * W, my = moon.y * H;
-  const dx = clientX - mx, dy = clientY - my;
-  return Math.sqrt(dx * dx + dy * dy) < moon.r * 1.6;
+  const hitR = moon.r * 2.2; // generous tap zone (glow area)
+  moonHit.style.left = (mx - hitR) + 'px';
+  moonHit.style.top = (my - hitR) + 'px';
+  moonHit.style.width = (hitR * 2) + 'px';
+  moonHit.style.height = (hitR * 2) + 'px';
 }
-window.addEventListener('pointerdown', e => {
-  if (pointerNearMoon(e.clientX, e.clientY)) {
-    spawnMoonFireflies();
-  }
+moonHit.addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  spawnMoonFireflies();
 });
 
 // Shake detection via DeviceMotion
