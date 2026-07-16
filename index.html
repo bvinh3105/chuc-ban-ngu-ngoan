@@ -37,7 +37,7 @@
   #flowers {
     position: fixed;
     left: 0; right: 0; bottom: 0;
-    height: 45vh;
+    height: 55vh;
     z-index: 5;
     touch-action: none;
   }
@@ -255,23 +255,29 @@ const petals = [];
 
 function buildFlowers() {
   flowers.length = 0;
-  const density = Math.max(28, Math.floor(FW / 26));
+  const density = Math.max(90, Math.floor(FW / 10));
   const palette = [
-    { main: '#e63b5e', dark: '#a01a3a', light: '#ff7a95' }, // classic red
-    { main: '#ff8fb1', dark: '#c25378', light: '#ffc4d6' }, // pink
-    { main: '#ffd93d', dark: '#c99a1a', light: '#ffe98a' }, // yellow
-    { main: '#b76bff', dark: '#7a3ac0', light: '#d9a8ff' }, // purple
-    { main: '#ff9955', dark: '#c26326', light: '#ffbe8a' }, // orange
-    { main: '#f8f0ff', dark: '#c9b8d9', light: '#ffffff' }, // white
-    { main: '#ff4d6d', dark: '#a41e3d', light: '#ff8fa8' }, // rose
+    { main: '#e63b5e', dark: '#a01a3a', light: '#ff7a95' },
+    { main: '#ff8fb1', dark: '#c25378', light: '#ffc4d6' },
+    { main: '#ffd93d', dark: '#c99a1a', light: '#ffe98a' },
+    { main: '#b76bff', dark: '#7a3ac0', light: '#d9a8ff' },
+    { main: '#ff9955', dark: '#c26326', light: '#ffbe8a' },
+    { main: '#f8f0ff', dark: '#c9b8d9', light: '#ffffff' },
+    { main: '#ff4d6d', dark: '#a41e3d', light: '#ff8fa8' },
+    { main: '#ff5a3c', dark: '#a02818', light: '#ff8f7a' },
+    { main: '#c8a2ff', dark: '#8a5fc8', light: '#e0c9ff' },
   ];
   for (let i = 0; i < density; i++) {
-    const t = i / density;
-    const x = t * FW + randBetween(-FW / density * 0.5, FW / density * 0.5);
-    const depth = Math.random();
-    const baseY = FH * (0.55 + depth * 0.42);
-    const stemLen = randBetween(50, 110) * (0.55 + depth * 0.7);
-    const headH = randBetween(18, 28) * (0.55 + depth * 0.7);
+    // 3 depth bands so field feels layered and full
+    const band = Math.floor(Math.random() * 3);
+    const bandDepth = band / 2;
+    const jitter = Math.random() * 0.33;
+    const depth = Math.min(1, bandDepth + jitter);
+
+    const x = Math.random() * FW;
+    const baseY = FH * (0.32 + depth * 0.62);
+    const stemLen = randBetween(45, 120) * (0.5 + depth * 0.75);
+    const headH = randBetween(16, 30) * (0.5 + depth * 0.75);
     const headW = headH * randBetween(0.65, 0.85);
     const col = palette[Math.floor(Math.random() * palette.length)];
     flowers.push({
@@ -283,7 +289,7 @@ function buildFlowers() {
       color: col,
       swayPhase: Math.random() * Math.PI * 2,
       stemW: 1.2 + depth * 1.6,
-      hasLeaf: Math.random() < 0.7,
+      hasLeaf: Math.random() < 0.75,
       leafSide: Math.random() < 0.5 ? -1 : 1,
     });
   }
