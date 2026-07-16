@@ -405,16 +405,13 @@ function spawnMoonFireflies() {
   }
 }
 
-// Fireflies scatter over the whole sky on shake
-function spawnShakeFireflies() {
-  const count = 20 + Math.floor(Math.random() * 12);
-  for (let i = 0; i < count; i++) {
-    spawnFireflyAt(
-      Math.random() * W,
-      randBetween(H * 0.1, H * 0.65),
-      { vx: randBetween(-0.8, 0.8), vy: randBetween(-1.2, 0.4) }
-    );
+// Shake makes the flower field rustle — random impulses + ripple wave
+function rustleFlowers(intensity = 1) {
+  for (const f of flowers) {
+    const dir = Math.random() < 0.5 ? -1 : 1;
+    f.vel += dir * randBetween(4, 10) * intensity * (0.4 + f.depth);
   }
+  fieldShakeUntil = Math.max(fieldShakeUntil, performance.now() + 900 + 500 * intensity);
 }
 
 function updateFireflies(dt) {
@@ -825,10 +822,11 @@ function handleDeviceMotion(e) {
 
   // Smooth accumulator; only trigger on genuine shakes, not tilts
   shakeEnergy = shakeEnergy * 0.85 + jerk * 0.15;
-  if (shakeEnergy > 40 && now - lastShakeAt > 500) {
+  if (shakeEnergy > 40 && now - lastShakeAt > 400) {
     lastShakeAt = now;
-    spawnShakeFireflies();
-    // Small extra burst next tick if still shaking
+    // Scale rustle intensity with shake strength (soft → strong shake)
+    const intensity = Math.min(1.6, (shakeEnergy - 40) / 60 + 0.6);
+    rustleFlowers(intensity);
     shakeEnergy *= 0.4;
   }
 }
