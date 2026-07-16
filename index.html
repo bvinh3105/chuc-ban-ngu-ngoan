@@ -10,11 +10,14 @@
   html, body {
     overscroll-behavior: none;
     touch-action: none;
+    width: 100%;
+    height: 100%;
+    background: #01030a;
   }
 
   body {
     background: radial-gradient(ellipse at 50% 30%, #12203a 0%, #060d1e 55%, #01030a 100%);
-    min-height: 100vh;
+    background-color: #01030a;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -22,24 +25,28 @@
     justify-content: center;
     font-family: 'Segoe UI', 'Inter', system-ui, -apple-system, sans-serif;
     cursor: default;
-    position: fixed;
-    inset: 0;
   }
 
   #canvas {
     position: fixed;
     top: 0; left: 0;
-    width: 100%; height: 100%;
+    width: 100vw; height: 100vh;
+    height: 100dvh;
     pointer-events: none;
     z-index: 0;
+    display: block;
   }
 
   #flowers {
     position: fixed;
-    left: 0; right: 0; bottom: 0;
+    left: 0;
+    bottom: 0;
+    width: 100vw;
     height: 55vh;
+    height: 55dvh;
     z-index: 5;
     touch-action: none;
+    display: block;
   }
 
   .center {
@@ -244,8 +251,11 @@ let FW, FH;
 function resizeFlowers() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const rect = flowersCanvas.getBoundingClientRect();
-  FW = rect.width; FH = rect.height;
+  FW = Math.max(rect.width, window.innerWidth);
+  FH = Math.max(rect.height, window.innerHeight * 0.55);
   flowersCanvas.width = FW * dpr; flowersCanvas.height = FH * dpr;
+  flowersCanvas.style.width = FW + 'px';
+  flowersCanvas.style.height = FH + 'px';
   fctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   buildFlowers();
 }
@@ -591,6 +601,13 @@ function draw(now) {
 }
 
 resize();
+requestAnimationFrame(() => resize());
+setTimeout(resize, 200);
+window.addEventListener('load', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 150));
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', resize);
+}
 draw();
 </script>
 </body>
