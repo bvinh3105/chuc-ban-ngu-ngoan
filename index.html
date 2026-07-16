@@ -690,10 +690,17 @@ window.addEventListener('pointerleave', releasePointer, { passive: true });
 
 function updateFlowers(dt) {
   const now = performance.now();
+  const nowSec = now * 0.001;
   if (now - pointer.lastMove > 40) {
     pointer.vx *= 0.85; pointer.vy *= 0.85;
     pointer.speed *= 0.85;
   }
+
+  // Global wind — layered slow oscillations feel more natural than a single sine
+  const windBase = Math.sin(nowSec * 0.55) * 0.55 + Math.sin(nowSec * 0.23 + 1.3) * 0.3;
+  // Gust envelope — usually calm, occasionally a wave of stronger wind rolls through
+  const gustSeed = Math.sin(nowSec * 0.13) * Math.sin(nowSec * 0.31 + 0.7);
+  const gustEnv = Math.max(0, gustSeed - 0.25) * 3.0;
 
   for (const f of flowers) {
     // Head position based on current angle
@@ -704,11 +711,14 @@ function updateFlowers(dt) {
     const mx = f.baseX + Math.sin(f.angle * 0.5) * f.stemLen * 0.55;
     const my = f.baseY - Math.cos(f.angle * 0.5) * f.stemLen * 0.55;
 
-    // Ambient sway
-    const sway = Math.sin(now * 0.001 + f.swayPhase) * 0.02;
+    // Per-flower wind — wave travels left→right so field ripples instead of moving in unison
+    const posPhase = (f.baseX / FW) * Math.PI * 2;
+    const localSway = Math.sin(nowSec * 1.15 + f.swayPhase - posPhase * 0.4) * 0.45;
+    const gust = Math.sin(nowSec * 1.8 - posPhase * 0.7) * gustEnv * (0.5 + f.depth * 0.5);
+    const wind = (windBase + localSway + gust) * (0.35 + f.depth * 0.65);
 
     // Spring toward upright + wind
-    let force = -f.angle * 7 + sway;
+    let force = -f.angle * 7 + wind;
 
     if (pointer.active) {
       // Nearest of head or midpoint
