@@ -152,8 +152,8 @@
 
 <canvas id="canvas"></canvas>
 <canvas id="flowers"></canvas>
-<audio id="bgm" src="lullaby.mp3" loop preload="auto"></audio>
-<button id="mute-btn" aria-label="Bật/tắt nhạc">🔊</button>
+<audio id="bgm" src="lullaby.mp3" loop preload="auto" playsinline></audio>
+<button id="mute-btn" class="muted" aria-label="Bật/tắt nhạc">🔇</button>
 
 <div class="center">
   <div class="message" id="btn">✨ Chúc bạn ngủ ngon ✨</div>
@@ -168,41 +168,51 @@ const bgm = document.getElementById('bgm');
 const muteBtn = document.getElementById('mute-btn');
 bgm.volume = 0.5;
 bgm.loop = true;
-let musicStarted = false;
-let userMuted = false;
+let userPaused = false; // set true ONLY when user explicitly taps to pause
 
-function tryStartMusic() {
-  if (musicStarted || userMuted) return;
-  const p = bgm.play();
-  if (p && typeof p.then === 'function') {
-    p.then(() => { musicStarted = true; })
-     .catch(() => { /* browser blocked — will retry on next user gesture */ });
-  } else {
-    musicStarted = true;
-  }
+function reflectPlaying() {
+  muteBtn.textContent = '🔊';
+  muteBtn.classList.remove('muted');
+}
+function reflectPaused() {
+  muteBtn.textContent = '🔇';
+  muteBtn.classList.add('muted');
 }
 
-// Autoplay is blocked without user interaction — attempt on first gesture anywhere
-['pointerdown', 'touchstart', 'keydown', 'click'].forEach(evt =>
-  window.addEventListener(evt, tryStartMusic, { once: false, passive: true })
-);
-// Also try immediately (works if browser allows it)
-window.addEventListener('load', tryStartMusic);
+// Sync UI with actual audio state
+bgm.addEventListener('play', reflectPlaying);
+bgm.addEventListener('playing', reflectPlaying);
+bgm.addEventListener('pause', reflectPaused);
 
-muteBtn.addEventListener('pointerdown', e => {
+// iOS + most modern browsers require play() to run SYNCHRONOUSLY inside a user-gesture handler.
+// Attach a one-shot unlocker on the first real user interaction anywhere.
+function unlockAudio() {
+  if (userPaused) return;
+  const p = bgm.play();
+  if (p && typeof p.catch === 'function') p.catch(() => {});
+}
+const UNLOCK_EVENTS = ['pointerdown', 'touchend', 'click', 'keydown'];
+function attachUnlock() {
+  UNLOCK_EVENTS.forEach(evt =>
+    window.addEventListener(evt, unlockAudio, { capture: true, passive: true })
+  );
+}
+attachUnlock();
+// Try once on load in case the browser allows silent autoplay
+window.addEventListener('load', () => { bgm.play().catch(() => {}); });
+
+// Mute button — toggles based on ACTUAL audio state, not a shadow flag
+muteBtn.addEventListener('click', e => {
   e.stopPropagation();
-  userMuted = !userMuted;
-  if (userMuted) {
-    bgm.pause();
-    muteBtn.textContent = '🔇';
-    muteBtn.classList.add('muted');
-  } else {
+  if (bgm.paused) {
+    userPaused = false;
     bgm.play().catch(() => {});
-    muteBtn.textContent = '🔊';
-    muteBtn.classList.remove('muted');
-    musicStarted = true;
+  } else {
+    userPaused = true;
+    bgm.pause();
   }
 });
+muteBtn.addEventListener('pointerdown', e => e.stopPropagation());
 
 // ============ STAR CANVAS ============
 const canvas = document.getElementById('canvas');
