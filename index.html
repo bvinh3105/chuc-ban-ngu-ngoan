@@ -57,7 +57,7 @@
     flex-direction: column;
     align-items: center;
     gap: 32px;
-    margin-bottom: 40vh;
+    margin-bottom: 26vh;
   }
 
   .message {
@@ -488,14 +488,22 @@ function drawFireflies() {
 
 // ============ BUTTERFLIES — occasional cameo ============
 const butterflies = [];
-let nextButterflyAt = performance.now() + 8000 + Math.random() * 10000;
+let nextButterflyAt = performance.now() + 1500 + Math.random() * 3000;
 const BUTTERFLY_PALETTE = [
-  { wing: '#ffcce0', accent: '#ff8fb1' },
-  { wing: '#fff2a8', accent: '#ffc94a' },
-  { wing: '#bde0ff', accent: '#7fb8f0' },
-  { wing: '#e0c9ff', accent: '#a884e0' },
-  { wing: '#ffe0c2', accent: '#ff9d55' },
-  { wing: '#ffffff', accent: '#cfcfcf' },
+  { wing: '#ffcce0', accent: '#ff8fb1' }, // pink
+  { wing: '#fff2a8', accent: '#ffc94a' }, // yellow
+  { wing: '#bde0ff', accent: '#7fb8f0' }, // sky blue
+  { wing: '#e0c9ff', accent: '#a884e0' }, // lavender
+  { wing: '#ffe0c2', accent: '#ff9d55' }, // peach
+  { wing: '#ffffff', accent: '#cfcfcf' }, // white
+  { wing: '#ff9ec7', accent: '#c94e88' }, // magenta rose
+  { wing: '#a8e6d0', accent: '#4fb894' }, // mint
+  { wing: '#ffb891', accent: '#e05c2a' }, // coral orange
+  { wing: '#c9a0ff', accent: '#7f4dd0' }, // violet
+  { wing: '#ffec5c', accent: '#e8a800' }, // canary
+  { wing: '#a2d2ff', accent: '#4d90d9' }, // cornflower
+  { wing: '#ffd6ec', accent: '#e090bf' }, // baby pink
+  { wing: '#d4f0a0', accent: '#84c04d' }, // pistachio
 ];
 
 // States: 'crossing' (traversing screen), 'seeking' (flying to a landing target),
@@ -550,9 +558,9 @@ function pickLandingTarget(b) {
 
 function updateButterflies(dt) {
   const now = performance.now();
-  if (now >= nextButterflyAt && butterflies.length < 3) {
+  if (now >= nextButterflyAt && butterflies.length < 6) {
     spawnButterfly();
-    nextButterflyAt = now + 14000 + Math.random() * 22000;
+    nextButterflyAt = now + 3500 + Math.random() * 6500;
   }
 
   for (let i = butterflies.length - 1; i >= 0; i--) {
