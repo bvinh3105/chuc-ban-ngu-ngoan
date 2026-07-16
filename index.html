@@ -306,8 +306,9 @@ function buildFlowers() {
   flowers.sort((a, b) => a.depth - b.depth);
 }
 
-// Pointer tracking
-let pointer = { x: -9999, y: -9999, prevX: -9999, prevY: -9999, vx: 0, vy: 0, active: false, lastMove: 0 };
+// Pointer tracking + trail
+let pointer = { x: -9999, y: -9999, prevX: -9999, prevY: -9999, vx: 0, vy: 0, active: false, lastMove: 0, speed: 0 };
+const trail = [];
 
 function updatePointer(clientX, clientY) {
   const rect = flowersCanvas.getBoundingClientRect();
@@ -316,11 +317,14 @@ function updatePointer(clientX, clientY) {
   if (pointer.active) {
     pointer.vx = nx - pointer.x;
     pointer.vy = ny - pointer.y;
+    pointer.speed = Math.sqrt(pointer.vx * pointer.vx + pointer.vy * pointer.vy);
   }
   pointer.prevX = pointer.x; pointer.prevY = pointer.y;
   pointer.x = nx; pointer.y = ny;
   pointer.active = true;
   pointer.lastMove = performance.now();
+  trail.push({ x: nx, y: ny, life: 0.5, size: 6 + Math.min(pointer.speed * 0.3, 14) });
+  if (trail.length > 30) trail.shift();
 }
 
 flowersCanvas.addEventListener('mousemove', e => updatePointer(e.clientX, e.clientY));
@@ -337,43 +341,75 @@ flowersCanvas.addEventListener('touchend', () => { pointer.active = false; point
 
 function updateFlowers(dt) {
   const now = performance.now();
-  if (now - pointer.lastMove > 40) { pointer.vx *= 0.7; pointer.vy *= 0.7; }
+  if (now - pointer.lastMove > 40) {
+    pointer.vx *= 0.85; pointer.vy *= 0.85;
+    pointer.speed *= 0.85;
+  }
 
   for (const f of flowers) {
     // Head position based on current angle
     const hx = f.baseX + Math.sin(f.angle) * f.stemLen;
     const hy = f.baseY - Math.cos(f.angle) * f.stemLen;
 
+    // Whole-stem influence: also test midpoint so lower part reacts too
+    const mx = f.baseX + Math.sin(f.angle * 0.5) * f.stemLen * 0.55;
+    const my = f.baseY - Math.cos(f.angle * 0.5) * f.stemLen * 0.55;
+
     // Ambient sway
-    const sway = Math.sin(now * 0.001 + f.swayPhase) * 0.015;
+    const sway = Math.sin(now * 0.001 + f.swayPhase) * 0.02;
 
-    // Pointer interaction: push based on proximity + velocity direction
-    let force = -f.angle * 6 + sway; // spring toward upright + gentle wind
+    // Spring toward upright + wind
+    let force = -f.angle * 7 + sway;
+
     if (pointer.active) {
-      const dx = hx - pointer.x;
-      const dy = hy - pointer.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const R = 90;
-      if (dist < R) {
-        const strength = (1 - dist / R);
-        // Horizontal push follows pointer velocity + a shove away
-        const push = pointer.vx * 0.02 + (dx < 0 ? -1 : 1) * strength * 0.3;
-        force += push * (2 + strength * 3);
+      // Nearest of head or midpoint
+      const dxH = hx - pointer.x, dyH = hy - pointer.y;
+      const dxM = mx - pointer.x, dyM = my - pointer.y;
+      const distH = Math.sqrt(dxH * dxH + dyH * dyH);
+      const distM = Math.sqrt(dxM * dxM + dyM * dyM);
+      const useHead = distH <= distM;
+      const dx = useHead ? dxH : dxM;
+      const dy = useHead ? dyH : dyM;
+      const dist = useHead ? distH : distM;
 
-        // Chance to shed a petal on hard swipes
-        const speedMag = Math.abs(pointer.vx) + Math.abs(pointer.vy);
-        if (speedMag > 12 && Math.random() < 0.08 * strength) {
-          spawnPetal(hx, hy, f.color.main, pointer.vx, pointer.vy);
+      const R = 130;
+      if (dist < R) {
+        const strength = Math.pow(1 - dist / R, 1.5);
+
+        // Direction to push flower AWAY from finger (horizontal component)
+        const dirSign = dx === 0 ? (Math.random() < 0.5 ? -1 : 1) : Math.sign(dx);
+
+        // Direct proximity push — feels like the finger is nudging the flower
+        const proximityPush = dirSign * strength * 1.4;
+
+        // Velocity contribution — swiping drags flowers along
+        const velocityPush = pointer.vx * 0.06 * strength;
+
+        force += proximityPush + velocityPush;
+
+        // Petal shedding: easier to trigger, more per touch
+        if (pointer.speed > 5 && Math.random() < 0.18 * strength) {
+          spawnPetal(hx, hy, f.color.main, pointer.vx * 0.5, pointer.vy * 0.5);
+        }
+        // Also shed just from contact on close touch
+        if (strength > 0.85 && Math.random() < 0.03) {
+          spawnPetal(hx, hy, f.color.light, randBetween(-2, 2), randBetween(-3, -1));
         }
       }
     }
 
-    f.vel += force * dt;
-    f.vel *= Math.pow(0.02, dt); // damping
+    f.vel += force * dt * 60;
+    f.vel *= Math.pow(0.015, dt); // slightly less damping so movement feels alive
     f.angle += f.vel * dt;
     // Clamp so stem doesn't fold
-    if (f.angle > 1.2) { f.angle = 1.2; f.vel *= -0.3; }
-    if (f.angle < -1.2) { f.angle = -1.2; f.vel *= -0.3; }
+    if (f.angle > 1.3) { f.angle = 1.3; f.vel *= -0.25; }
+    if (f.angle < -1.3) { f.angle = -1.3; f.vel *= -0.25; }
+  }
+
+  // Trail decay
+  for (let i = trail.length - 1; i >= 0; i--) {
+    trail[i].life -= dt;
+    if (trail[i].life <= 0) trail.splice(i, 1);
   }
 
   // Petals
@@ -386,6 +422,34 @@ function updateFlowers(dt) {
     p.rot += p.vr * dt;
     p.life -= dt;
     if (p.life <= 0 || p.y > FH + 20) petals.splice(i, 1);
+  }
+}
+
+function drawTouchGlow() {
+  // Trail (older = smaller/fainter)
+  for (const t of trail) {
+    const a = t.life / 0.5;
+    const r = t.size * a;
+    const g = fctx.createRadialGradient(t.x, t.y, 0, t.x, t.y, r * 2);
+    g.addColorStop(0, `rgba(255, 220, 255, ${0.35 * a})`);
+    g.addColorStop(1, 'rgba(255, 220, 255, 0)');
+    fctx.fillStyle = g;
+    fctx.beginPath();
+    fctx.arc(t.x, t.y, r * 2, 0, Math.PI * 2);
+    fctx.fill();
+  }
+
+  // Current touch glow
+  if (pointer.active && performance.now() - pointer.lastMove < 300) {
+    const R = 55;
+    const g = fctx.createRadialGradient(pointer.x, pointer.y, 0, pointer.x, pointer.y, R);
+    g.addColorStop(0, 'rgba(255, 230, 255, 0.35)');
+    g.addColorStop(0.4, 'rgba(200, 160, 255, 0.15)');
+    g.addColorStop(1, 'rgba(200, 160, 255, 0)');
+    fctx.fillStyle = g;
+    fctx.beginPath();
+    fctx.arc(pointer.x, pointer.y, R, 0, Math.PI * 2);
+    fctx.fill();
   }
 }
 
@@ -596,6 +660,7 @@ function draw(now) {
   updateFlowers(dt);
   drawGrass();
   drawFlowers();
+  drawTouchGlow();
 
   requestAnimationFrame(draw);
 }
