@@ -345,6 +345,64 @@ function triggerFireflies() {
   }
 }
 
+function spawnFireflyAt(gx, gy, opts = {}) {
+  const isGold = Math.random() < 0.75;
+  const color = isGold ? '255, 240, 140' : '190, 255, 150';
+  fireflies.push({
+    x: gx, y: gy,
+    vx: opts.vx !== undefined ? opts.vx : randBetween(-0.6, 0.6),
+    vy: opts.vy !== undefined ? opts.vy : randBetween(-1.8, -0.5),
+    wanderAngle: Math.random() * Math.PI * 2,
+    wanderSpeed: randBetween(0.4, 1.2),
+    blinkPhase: Math.random() * Math.PI * 2,
+    blinkSpeed: randBetween(2, 4.5),
+    life: randBetween(14, 24),
+    maxLife: 24,
+    size: randBetween(1.4, 2.8),
+    color,
+    turnRate: randBetween(0.5, 1.2),
+  });
+}
+
+// Ripples for moon-tap visual feedback
+const ripples = [];
+function spawnRipple(x, y, color) {
+  ripples.push({ x, y, r: 0, maxR: 120, life: 1, color });
+}
+
+// Fireflies burst out from the moon in a soft radial pattern
+function spawnMoonFireflies() {
+  const mx = moon.x * W, my = moon.y * H;
+  spawnRipple(mx, my, '255, 245, 210');
+  const count = 25 + Math.floor(Math.random() * 15);
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = randBetween(1.2, 3);
+    // Start slightly inside moon
+    const startR = moon.r * (0.3 + Math.random() * 0.6);
+    spawnFireflyAt(
+      mx + Math.cos(angle) * startR,
+      my + Math.sin(angle) * startR,
+      {
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - randBetween(0, 0.6),
+      }
+    );
+  }
+}
+
+// Fireflies scatter over the whole sky on shake
+function spawnShakeFireflies() {
+  const count = 20 + Math.floor(Math.random() * 12);
+  for (let i = 0; i < count; i++) {
+    spawnFireflyAt(
+      Math.random() * W,
+      randBetween(H * 0.1, H * 0.65),
+      { vx: randBetween(-0.8, 0.8), vy: randBetween(-1.2, 0.4) }
+    );
+  }
+}
+
 function updateFireflies(dt) {
   for (let i = fireflies.length - 1; i >= 0; i--) {
     const f = fireflies[i];
@@ -413,6 +471,80 @@ function drawFireflies() {
   ctx.globalAlpha = 1;
   ctx.restore();
 }
+
+function updateRipples(dt) {
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const r = ripples[i];
+    r.r += (r.maxR - r.r) * dt * 3;
+    r.life -= dt * 1.2;
+    if (r.life <= 0) ripples.splice(i, 1);
+  }
+}
+
+function drawRipples() {
+  for (const r of ripples) {
+    ctx.strokeStyle = `rgba(${r.color}, ${r.life * 0.5})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+// ============ HIDDEN EASTER-EGG MODE: tap moon or shake phone → fireflies ============
+function pointerNearMoon(clientX, clientY) {
+  const mx = moon.x * W, my = moon.y * H;
+  const dx = clientX - mx, dy = clientY - my;
+  return Math.sqrt(dx * dx + dy * dy) < moon.r * 1.6;
+}
+window.addEventListener('pointerdown', e => {
+  if (pointerNearMoon(e.clientX, e.clientY)) {
+    spawnMoonFireflies();
+  }
+});
+
+// Shake detection via DeviceMotion
+let lastAccel = { x: 0, y: 0, z: 0, t: 0 };
+let shakeEnergy = 0;
+let lastShakeAt = 0;
+function handleDeviceMotion(e) {
+  const acc = e.accelerationIncludingGravity || e.acceleration;
+  if (!acc || acc.x === null) return;
+  const now = performance.now();
+  const dt = Math.max(now - lastAccel.t, 8);
+  const dx = (acc.x || 0) - lastAccel.x;
+  const dy = (acc.y || 0) - lastAccel.y;
+  const dz = (acc.z || 0) - lastAccel.z;
+  const jerk = Math.sqrt(dx * dx + dy * dy + dz * dz) / dt * 1000;
+  lastAccel = { x: acc.x || 0, y: acc.y || 0, z: acc.z || 0, t: now };
+
+  // Smooth accumulator; only trigger on genuine shakes, not tilts
+  shakeEnergy = shakeEnergy * 0.85 + jerk * 0.15;
+  if (shakeEnergy > 40 && now - lastShakeAt > 500) {
+    lastShakeAt = now;
+    spawnShakeFireflies();
+    // Small extra burst next tick if still shaking
+    shakeEnergy *= 0.4;
+  }
+}
+
+async function requestMotionPermission() {
+  if (typeof DeviceMotionEvent === 'undefined') return;
+  // iOS 13+ requires explicit permission via a user gesture
+  if (typeof DeviceMotionEvent.requestPermission === 'function') {
+    try {
+      const state = await DeviceMotionEvent.requestPermission();
+      if (state === 'granted') {
+        window.addEventListener('devicemotion', handleDeviceMotion);
+      }
+    } catch (e) { /* silently ignore */ }
+  } else {
+    // Android / non-iOS — no permission needed
+    window.addEventListener('devicemotion', handleDeviceMotion);
+  }
+}
+// Attach on first user gesture (required for iOS permission prompt)
+window.addEventListener('pointerdown', requestMotionPermission, { once: true });
 
 // Apply ongoing traveling-ripple shake to flowers between clicks
 function applyFieldShake(dt) {
@@ -839,6 +971,8 @@ function draw(now) {
 
   // Fireflies rising through the night sky
   updateFireflies(dt);
+  updateRipples(dt);
+  drawRipples();
   drawFireflies();
 
   // Flowers
