@@ -124,12 +124,36 @@
     pointer-events: none;
     user-select: none;
   }
+
+  #mute-btn {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    z-index: 30;
+    background: rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.75);
+    border: 1px solid rgba(255,255,255,0.15);
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    font-size: 18px;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+    transition: background 0.2s, color 0.2s;
+    -webkit-tap-highlight-color: transparent;
+    display: flex; align-items: center; justify-content: center;
+    line-height: 1;
+    padding: 0;
+  }
+  #mute-btn:hover { background: rgba(255,255,255,0.15); color: #fff; }
+  #mute-btn.muted { color: rgba(255,255,255,0.35); }
 </style>
 </head>
 <body>
 
 <canvas id="canvas"></canvas>
 <canvas id="flowers"></canvas>
+<audio id="bgm" src="lullaby.mp3" loop preload="auto"></audio>
+<button id="mute-btn" aria-label="Bật/tắt nhạc">🔊</button>
 
 <div class="center">
   <div class="message" id="btn">✨ Chúc bạn ngủ ngon ✨</div>
@@ -139,6 +163,47 @@
 <div class="hint">lướt tay vào cánh đồng hoa tulip 🌷</div>
 
 <script>
+// ============ BACKGROUND MUSIC ============
+const bgm = document.getElementById('bgm');
+const muteBtn = document.getElementById('mute-btn');
+bgm.volume = 0.5;
+bgm.loop = true;
+let musicStarted = false;
+let userMuted = false;
+
+function tryStartMusic() {
+  if (musicStarted || userMuted) return;
+  const p = bgm.play();
+  if (p && typeof p.then === 'function') {
+    p.then(() => { musicStarted = true; })
+     .catch(() => { /* browser blocked — will retry on next user gesture */ });
+  } else {
+    musicStarted = true;
+  }
+}
+
+// Autoplay is blocked without user interaction — attempt on first gesture anywhere
+['pointerdown', 'touchstart', 'keydown', 'click'].forEach(evt =>
+  window.addEventListener(evt, tryStartMusic, { once: false, passive: true })
+);
+// Also try immediately (works if browser allows it)
+window.addEventListener('load', tryStartMusic);
+
+muteBtn.addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  userMuted = !userMuted;
+  if (userMuted) {
+    bgm.pause();
+    muteBtn.textContent = '🔇';
+    muteBtn.classList.add('muted');
+  } else {
+    bgm.play().catch(() => {});
+    muteBtn.textContent = '🔊';
+    muteBtn.classList.remove('muted');
+    musicStarted = true;
+  }
+});
+
 // ============ STAR CANVAS ============
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
