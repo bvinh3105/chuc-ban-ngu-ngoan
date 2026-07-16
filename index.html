@@ -197,8 +197,10 @@ function updateComboBar() {
   comboBar.style.width = pct + '%';
 }
 
-btn.addEventListener('mousedown', handleClick);
-btn.addEventListener('touchstart', e => { e.preventDefault(); handleClick(); }, { passive: false });
+// Pointer events unify mouse + touch and don't hijack subsequent touches on other elements
+btn.addEventListener('pointerdown', e => {
+  handleClick();
+});
 
 function handleClick() {
   btn.classList.add('active');
@@ -213,6 +215,8 @@ function handleClick() {
   if (comboCount >= COMBO_THRESHOLD) {
     triggerFireflies();
     comboCount = 0; updateComboBar(); speedMult = 1;
+    // Defensive: any stuck pointer state from rapid combo taps gets cleared
+    releasePointer();
     setTimeout(() => comboBarWrap.classList.remove('visible'), 600);
   }
   clearTimeout(comboTimeout);
@@ -287,7 +291,28 @@ function updateFireflies(dt) {
   }
 }
 
+// Pre-rendered glow sprites — createRadialGradient every frame is expensive on mobile
+const fireflySprites = {};
+function makeFireflySprite(color) {
+  const size = 96;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const cx = c.getContext('2d');
+  const g = cx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, `rgba(${color}, 0.6)`);
+  g.addColorStop(0.3, `rgba(${color}, 0.25)`);
+  g.addColorStop(1, `rgba(${color}, 0)`);
+  cx.fillStyle = g;
+  cx.fillRect(0, 0, size, size);
+  return c;
+}
+function getFireflySprite(color) {
+  if (!fireflySprites[color]) fireflySprites[color] = makeFireflySprite(color);
+  return fireflySprites[color];
+}
+
 function drawFireflies() {
+  if (fireflies.length === 0) return;
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   for (const f of fireflies) {
@@ -297,23 +322,20 @@ function drawFireflies() {
     const blink = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(f.blinkPhase));
     const a = alpha * blink;
 
-    // Wide soft glow
+    // Wide soft glow — use cached sprite instead of building gradient per frame
     const glowR = f.size * 10;
-    const g = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, glowR);
-    g.addColorStop(0, `rgba(${f.color}, ${a * 0.55})`);
-    g.addColorStop(0.35, `rgba(${f.color}, ${a * 0.22})`);
-    g.addColorStop(1, `rgba(${f.color}, 0)`);
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(f.x, f.y, glowR, 0, Math.PI * 2);
-    ctx.fill();
+    const sprite = getFireflySprite(f.color);
+    ctx.globalAlpha = a;
+    ctx.drawImage(sprite, f.x - glowR, f.y - glowR, glowR * 2, glowR * 2);
 
     // Bright warm core
-    ctx.fillStyle = `rgba(255, 250, 210, ${a})`;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = 'rgba(255, 250, 210, 1)';
     ctx.beginPath();
     ctx.arc(f.x, f.y, f.size * 0.9, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.globalAlpha = 1;
   ctx.restore();
 }
 
@@ -414,17 +436,31 @@ function updatePointer(clientX, clientY) {
   if (trail.length > 30) trail.shift();
 }
 
-flowersCanvas.addEventListener('mousemove', e => updatePointer(e.clientX, e.clientY));
-flowersCanvas.addEventListener('mouseleave', () => { pointer.active = false; pointer.vx = 0; pointer.vy = 0; });
-flowersCanvas.addEventListener('touchstart', e => {
-  e.preventDefault();
-  const t = e.touches[0]; updatePointer(t.clientX, t.clientY);
-}, { passive: false });
-flowersCanvas.addEventListener('touchmove', e => {
-  e.preventDefault();
-  const t = e.touches[0]; updatePointer(t.clientX, t.clientY);
-}, { passive: false });
-flowersCanvas.addEventListener('touchend', () => { pointer.active = false; pointer.vx = 0; pointer.vy = 0; });
+function releasePointer() {
+  pointer.active = false;
+  pointer.vx = 0; pointer.vy = 0; pointer.speed = 0;
+}
+
+// Global pointer listeners — always active, decide per-event whether the touch is in the flowers zone.
+// This avoids touch-capture issues where tapping the message would block later touches on the canvas.
+function pointerInFlowersZone(clientY) {
+  const rect = flowersCanvas.getBoundingClientRect();
+  return clientY >= rect.top && clientY <= rect.bottom;
+}
+
+window.addEventListener('pointermove', e => {
+  if (!pointerInFlowersZone(e.clientY)) return;
+  updatePointer(e.clientX, e.clientY);
+}, { passive: true });
+
+window.addEventListener('pointerdown', e => {
+  if (!pointerInFlowersZone(e.clientY)) return;
+  updatePointer(e.clientX, e.clientY);
+}, { passive: true });
+
+window.addEventListener('pointerup', releasePointer, { passive: true });
+window.addEventListener('pointercancel', releasePointer, { passive: true });
+window.addEventListener('pointerleave', releasePointer, { passive: true });
 
 function updateFlowers(dt) {
   const now = performance.now();
